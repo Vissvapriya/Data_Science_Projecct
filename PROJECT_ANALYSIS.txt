@@ -1,0 +1,292 @@
+ADRA PROJECT ANALYSIS
+=====================
+
+Project name
+------------
+ADRA Smart Grid Energy Analytics
+
+Purpose
+-------
+This project analyzes smart-meter electricity consumption data. It cleans and
+splits the data, fits and compares probability distributions for electricity
+consumption, selects a distribution using the Adaptive Distribution Ranking
+Algorithm (ADRA), evaluates the selected distribution, creates result tables
+and charts, and presents the results in a Streamlit dashboard.
+
+This is primarily a statistical distribution-fitting and analytics project.
+It does not train a conventional supervised classification or forecasting
+model. The energy-category labels are produced from z-scores using fixed
+thresholds, independently of the dataset's existing anomaly labels.
+
+Project structure
+-----------------
+dashboard.py
+    Streamlit dashboard for model summary, interactive charts, chart gallery,
+    and experiment tables.
+
+main.py
+    Empty file in the current project; it does not orchestrate the workflow.
+
+requirements.txt
+    Pinned Python package requirements.
+
+src/inspect_data.py
+    Prints the raw dataset's columns, data types, sample records, statistics,
+    missing-value counts, and duplicate count.
+
+src/preprocessing.py
+    Cleans the raw dataset and creates time and peak-load features.
+
+src/split_data.py
+    Chronologically splits the processed dataset into training and test sets.
+
+src/generate_tables_1_2.py
+    Creates dataset summary and descriptive-statistics tables.
+
+src/distribution_fitting.py
+    Fits candidate probability distributions, calculates fit metrics, saves
+    parameter and goodness-of-fit tables, and plots fitted distributions.
+
+src/adra.py
+    Calculates adaptive metric weights, ADRA scores, and the final ranking.
+
+src/save_adra_model.py
+    Saves the selected distribution and its fitted parameters in a pickle file.
+
+src/test_evaluation.py
+    Evaluates the ADRA-selected distribution on the held-out test data.
+
+src/baseline_comparison.py
+    Compares selections based on AIC, BIC, KS, and ADRA on the test data.
+
+src/adra_prediction.py
+    Loads the saved model, calculates test-set probability and z-score values,
+    classifies energy levels, and saves prediction results and charts.
+
+src/generate_graphs.py
+    Generates exploratory charts from the training dataset.
+
+Data
+----
+Raw input:
+    data/raw/smart_meter_data (1).csv
+
+Raw columns:
+    Timestamp
+    Electricity_Consumed
+    Temperature
+    Humidity
+    Wind_Speed
+    Avg_Past_Consumption
+    Anomaly_Label
+
+The current dataset summary reports 5,000 records, 7 raw columns, 5 numerical
+features, and a 30-minute interval. It reports 4,750 Normal and 250 Abnormal
+labels, with no missing values or duplicate rows in the raw data.
+
+Processed files:
+    data/processed/cleaned_data.csv
+    data/processed/train.csv
+    data/processed/test.csv
+
+Preprocessing converts timestamps, removes records with invalid timestamps,
+removes duplicate rows, interpolates missing numerical values, forward/backward
+fills missing anomaly labels, orders rows chronologically, and removes
+Electricity_Consumed values outside [0, 1]. It adds Year, Month, Day, Hour,
+Minute, Day_of_Week, Day_Name, Day_Type, Time_Period, Peak_Threshold, and
+Peak_Flag features. Peak_Flag marks values at or above the dataset's 90th
+percentile consumption threshold.
+
+The split is chronological: the first 80 percent of records (4,000 in the
+current output) are training data and the final 20 percent (1,000) are test
+data. Distribution fitting uses Electricity_Consumed from the training data.
+
+Model and selection method
+--------------------------
+The model is a parametric probability distribution fitted to the
+Electricity_Consumed variable. SciPy's distribution fitting is used for these
+seven candidates:
+    Normal
+    Lognormal
+    Gamma
+    Weibull (SciPy weibull_min)
+    Exponential
+    GEV (SciPy genextreme)
+    Student-t
+
+The fitting step estimates each distribution's parameters from the training
+data. It compares distributions using:
+    Log-likelihood
+    AIC
+    BIC
+    Kolmogorov-Smirnov (KS) statistic and p-value
+    RMSE and MAE between empirical and fitted cumulative distributions
+
+ADRA converts each metric to a min-max score (lower is better for AIC, BIC,
+KS statistic, RMSE, and MAE; higher is better for KS p-value). It estimates
+metric reliability from coefficient of variation, converts reliability to
+normalized weights, combines the scores into ADRA_Score, and ranks candidates
+with the highest score first.
+
+The current saved results select Normal at ADRA rank 1, with ADRA_Score
+approximately 0.715633. The saved model is results/models/adra_model.pkl. It is
+a pickle containing a metadata dictionary (algorithm name, project title,
+selected distribution, score, rank, and parameter values), rather than a
+trained neural-network or classifier object.
+
+Energy classification and prediction output
+--------------------------------------------
+src/adra_prediction.py evaluates the selected distribution's PDF and CDF at
+each test-set electricity value. It also calculates a z-score. For a Normal
+distribution it uses the fitted mean and standard deviation; for other
+distributions this script uses the test data's own mean and standard
+deviation.
+
+The z-score categories are:
+    z >= 2       Very High
+    1 <= z < 2   High
+    -1 < z < 1   Normal
+    -2 < z <= -1 Low
+    z <= -2      Very Low
+
+These are statistical consumption categories, not predictions of the
+Anomaly_Label field. The prediction CSV includes the actual anomaly label for
+comparison, but ADRA's distribution ranking is based on electricity values.
+
+Saved output:
+    results/tables/adra_prediction_results.csv
+
+Its columns are Timestamp, Electricity_Consumed, Probability_Density,
+Cumulative_Probability, Z_Score, Energy_Classification, and
+Actual_Anomaly_Label.
+
+Tables
+------
+All saved tables are CSV files in results/tables/.
+
+table_1_dataset_statistics.csv
+    Dataset size, train/test counts, column and numerical-feature counts,
+    interval, missing/duplicate counts, and normal/abnormal counts.
+
+table_2_descriptive_statistics.csv
+    Mean, standard deviation, minimum, quartiles/median, and maximum for
+    Electricity_Consumed, Temperature, Humidity, Wind_Speed, and
+    Avg_Past_Consumption.
+
+table_3_distribution_parameters.csv
+    Estimated parameter values for each candidate distribution.
+
+table_4_goodness_of_fit.csv
+    Log-likelihood, AIC, BIC, KS statistic, KS p-value, RMSE, and MAE for each
+    fitted distribution.
+
+table_5_adra_ranking.csv
+    Original goodness-of-fit values, normalized metric scores, final ADRA score,
+    and ADRA rank for each candidate distribution.
+
+table_6_test_evaluation.csv
+    Held-out test record count and test log-likelihood, AIC, BIC, KS statistic,
+    KS p-value, RMSE, and MAE for the selected distribution.
+
+table_7_baseline_comparison.csv
+    Test comparison of distributions selected by AIC, BIC, KS, and ADRA. Its
+    Overall_Score is the sum of test KS statistic, RMSE, and MAE; lower ranks
+    are better.
+
+Current table_7 results rank the KS-selected Student-t distribution first and
+ADRA-selected Normal distribution second by that baseline score. AIC and BIC
+both select Lognormal in the current output, with substantially higher
+test-set errors. This comparison ranking is separate from the ADRA ranking.
+
+Graphs
+------
+Saved PNG files are in results/graphs/. The exploratory charts are generated
+by src/generate_graphs.py using the training data:
+    energy_consumption_distribution.png
+        Consumption histogram.
+    energy_consumption_timeseries.png
+        Electricity consumption over time.
+    hourly_consumption.png
+        Average consumption by hour of day.
+    daily_consumption.png
+        Daily average consumption.
+    weekday_vs_weekend.png
+        Average weekday versus weekend consumption.
+    time_period_consumption.png
+        Average consumption for night, morning, afternoon, and evening.
+    temperature_vs_consumption.png
+        Temperature versus electricity consumption scatter plot.
+    anomaly_consumption.png
+        Average consumption grouped by anomaly label.
+    monthly_consumption_trend.png
+        Monthly average consumption.
+    peak_load_analysis.png
+        Average consumption grouped by peak flag.
+    weather_energy_relationship.png
+        Temperature/humidity scatter plot with consumption represented by
+        color.
+    anomaly_label_distribution.png
+        Counts of anomaly labels.
+
+Other generated charts:
+    probability_distribution_comparison.png
+        Training-data histogram with the fitted candidate distribution curves.
+    adra_probability_analysis.png
+        Test-data histogram and the selected ADRA probability density.
+    adra_energy_classification.png
+        Counts of test-set z-score consumption categories.
+    adra_test_distribution.png
+        Test electricity values in observation order.
+
+Dashboard
+---------
+dashboard.py is a Streamlit application titled "ADRA Smart Grid Energy
+Analytics". It displays the test record count, selected distribution, ADRA
+score and rank; interactive test-set time-series and histogram charts;
+classification and goodness-of-fit views; hourly, day-type, time-period and
+temperature insights; a gallery of saved PNG graphs; and expandable views of
+tables 1 through 7.
+
+Technology
+----------
+The source imports use:
+    Python
+    pandas and NumPy for tabular data and numerical calculations
+    SciPy for statistical distributions and tests
+    Matplotlib for saved charts
+    Streamlit for the dashboard
+    Plotly Express for interactive dashboard charts
+    pickle for saving/loading the selected model dictionary
+
+The dependency file also pins scikit-learn and other packages, but the
+described ADRA modeling workflow does not import scikit-learn directly. The
+dashboard and analysis are file-based and read CSV/PNG/pickle artifacts from
+relative paths; no database tables or database server are used.
+
+Typical execution order
+-----------------------
+Run commands from the project root:
+    python src/inspect_data.py
+    python src/preprocessing.py
+    python src/split_data.py
+    python src/generate_tables_1_2.py
+    python src/distribution_fitting.py
+    python src/adra.py
+    python src/save_adra_model.py
+    python src/test_evaluation.py
+    python src/baseline_comparison.py
+    python src/adra_prediction.py
+    python src/generate_graphs.py
+    streamlit run dashboard.py
+
+The scripts depend on prior CSV and model outputs, and main.py is currently
+empty, so this order is manual rather than automatically orchestrated.
+
+Notes on interpretation
+-----------------------
+The ADRA model selects a probability distribution for one numeric variable;
+it is not a time-series forecasting model. Other fields are used for
+descriptive analysis and visualizations. The anomaly label is not the target
+for a supervised anomaly detector. The selected distribution and reported
+scores above are what the checked-in/current generated result files show and
+may change if the data or fitting results are regenerated.
